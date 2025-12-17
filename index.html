@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>나만의 경제 위기 6대 계기판 (Complete Fixed)</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #0f172a; /* Slate 900 */
+            color: #f1f5f9;
+        }
+
+        .gauge-needle {
+            transition: transform 1s cubic-bezier(0.4, 0.0, 0.2, 1);
+            transform-origin: bottom center;
+        }
+
+        .input-dark {
+            background-color: #334155;
+            border: 1px solid #475569;
+            color: white;
+            border-radius: 0.375rem;
+            padding: 0.25rem 0.5rem;
+            width: 110px;
+            text-align: right;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        .input-dark:focus {
+            outline: 2px solid #3b82f6;
+            border-color: transparent;
+        }
+        
+        .tab-btn {
+            padding: 12px 24px;
+            font-weight: bold;
+            border-bottom: 3px solid transparent;
+            color: #94a3b8;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover {
+            color: #e2e8f0;
+            background-color: rgba(255,255,255,0.05);
+        }
+        .tab-btn.active {
+            color: #60a5fa;
+            border-bottom-color: #60a5fa;
+        }
+
+        .period-btn {
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background-color: #334155;
+            color: #94a3b8;
+            transition: all 0.2s;
+        }
+        .period-btn.active {
+            background-color: #3b82f6;
+            color: white;
+        }
+
+        .live-btn {
+            transition: all 0.2s;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background-color: rgba(59, 130, 246, 0.15);
+            border: 1px solid rgba(59, 130, 246, 0.4);
+            color: #60a5fa;
+            font-size: 0.75rem;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .live-btn:hover {
+            background-color: rgba(59, 130, 246, 0.3);
+            color: #93c5fd;
+            transform: translateY(-1px);
+        }
+
+        /* AI Briefing Card Animation */
+        @keyframes pulse-border {
+            0% { border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+            70% { border-color: rgba(59, 130, 246, 0.8); box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+            100% { border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        .ai-card {
+            animation: pulse-border 3s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // ---------------------------------------------------------
+        // CONSTANTS & ACCURATE INITIAL DATA
+        // ---------------------------------------------------------
+        const STORAGE_KEY = "economic_dashboard_history_v10_fixed";
+
+        // Accurate Initial Data based on 2025.12.15 User Input
+        const DEFAULT_CURRENT = {
+            bondYield: 3.41,       // 국고채 10년물 (%)
+            exchangeRate: 1477.15, // 원/달러 환율 (Updated: 2025.12.15)
+            reserves: 430.6,       // 외환보유고 (억 달러)
+            pfDelinquency: 6.9,    // PF 연체율 (저축은행, %)
+            foreignerNet: -1.3,    // 외국인 주식 순매수 (조 원)
+            goldPrice: 2750.0      // 국제 금 시세 (USD/oz)
+        };
+
+        // Live Data Links (Direct Charts)
+        const LIVE_LINKS = {
+            bondYield: "https://www.google.com/finance/quote/KR10Y:Telerate?window=1M", 
+            exchangeRate: "https://www.google.com/finance/quote/USD-KRW?window=1M",     
+            reserves: "https://www.index.go.kr/unify/idx-info.do?idxCd=4263",           
+            pfDelinquency: "https://www.fss.or.kr/fss/bbs/B0000188/list.do?menuNo=200218", 
+            foreignerNet: "https://finance.naver.com/sise/sise_trans_style.naver",
+            goldPrice: "https://www.google.com/finance/quote/GCW00:COMEX?window=1M"
+        };
+
+        // Helper to generate dates
+        const getDates = (startDate, days) => {
+            const result = [];
+            const start = new Date(startDate);
+            for (let i = 0; i < days; i++) {
+                const d = new Date(start);
+                d.setDate(start.getDate() + i);
+                const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                result.push(dateStr);
+            }
+            return result;
+        };
+
+        // Realistic Long-Term Dummy Data Generator (Matching 2025 Trends & User Feedback)
+        const generateRealisticHistory = () => {
+            const today = new Date();
+            const threeYearsAgo = new Date(today);
+            threeYearsAgo.setFullYear(today.getFullYear() - 3);
+            
+            const days = Math.ceil((today - threeYearsAgo) / (1000 * 60 * 60 * 24));
+            const dates = getDates(threeYearsAgo, days);
+
+            return dates.map((date, i) => {
+                const d = new Date(date);
+                const year = d.getFullYear();
+                const month = d.getMonth() + 1;
+                
+                let exchangeRate = 1350;
+                let bondYield = 3.0;
+                let pfDelinquency = 3.0;
+                let goldPrice = 2400;
+                let reserves = 440;
+
+                // 1. Exchange Rate Trend Reconstruction
+                if (year < 2025) {
+                    exchangeRate = 1300 + (Math.sin(i * 0.02) * 50) + (Math.random() * 20);
+                } else {
+                    // 2025 Logic
+                    if (month <= 4) { 
+                        exchangeRate = 1450 + (Math.random() * 30 - 15);
+                    } else if (month <= 8) { 
+                        // Dip to 1350s (May-Aug) - User's correction
+                        const dipProgress = (month - 5) / 3;
+                        if (month === 5) exchangeRate = 1400 + (Math.random() * 20);
+                        else if (month === 6 || month === 7) exchangeRate = 1350 + (Math.random() * 30);
+                        else exchangeRate = 1380 + (Math.random() * 20);
+                    } else { 
+                        // Rise to 1477 (Sep-Dec)
+                        const riseProgress = (month - 9) / 3;
+                        // Smoothly approach 1477
+                        exchangeRate = 1380 + (riseProgress * 97) + (Math.random() * 20);
+                    }
+                }
+
+                // 2. Gold Price Trend (Safe Asset preference)
+                goldPrice = 2400 + (i / days * 300) + (Math.random() * 50);
+                if (year === 2025 && month >= 9) goldPrice += 100; // Surge in crisis
+
+                // 3. Reserves Trend (Slowly depleting in crisis)
+                reserves = 450 - (i / days * 20); // 450 -> 430
+
+                bondYield = 3.2 + (i / days * 0.2) + (Math.random() * 0.1);
+                pfDelinquency = 3.5 + (i / days * 3.4);
+
+                // Ensure the last record matches our accurate default (Today)
+                if (i === dates.length - 1) {
+                    return { date, ...DEFAULT_CURRENT };
+                }
+
+                return {
+                    date,
+                    bondYield: +bondYield.toFixed(2),
+                    exchangeRate: Math.floor(exchangeRate),
+                    reserves: +reserves.toFixed(1),
+                    pfDelinquency: +pfDelinquency.toFixed(1),
+                    foreignerNet: +((Math.random() - 0.5) * 3).toFixed(1),
+                    goldPrice: +goldPrice.toFixed(1)
+                };
+            });
+        };
+
+        // ---------------------------------------------------------
+        // COMPONENTS
+        // ---------------------------------------------------------
+
+        const Gauge = ({ dataKey, value, min, max, label, unit, thresholds, inverse = false }) => {
+            const percent = Math.min(Math.max((value - min) / (max - min), 0), 1);
+            const rotation = -90 + (percent * 180);
+
+            let status = "SAFE";
+            let color = "text-emerald-400";
+            let needleColor = "#34d399";
+
+            if (inverse) {
+                if (value <= thresholds.danger) { status = "CRITICAL"; color = "text-rose-500"; needleColor = "#f43f5e"; }
+                else if (value <= thresholds.warning) { status = "WARNING"; color = "text-amber-400"; needleColor = "#fbbf24"; }
+            } else if (dataKey === 'goldPrice') {
+                // Gold higher = Crisis indicator
+                if (value >= thresholds.danger) { status = "CRITICAL"; color = "text-rose-500"; needleColor = "#f43f5e"; }
+                else if (value >= thresholds.warning) { status = "WARNING"; color = "text-amber-400"; needleColor = "#fbbf24"; }
+            } else {
+                if (value >= thresholds.danger) { status = "CRITICAL"; color = "text-rose-500"; needleColor = "#f43f5e"; }
+                else if (value >= thresholds.warning) { status = "WARNING"; color = "text-amber-400"; needleColor = "#fbbf24"; }
+            }
+
+            const openLiveLink = () => {
+                const url = LIVE_LINKS[dataKey];
+                window.open(url, '_blank');
+            };
+
+            return (
+                <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 relative overflow-hidden flex flex-col items-center shadow-lg hover:shadow-xl transition-shadow">
+                    {/* Header */}
+                    <div className="w-full flex justify-between items-center mb-3">
+                        <div className="flex flex-col items-start gap-1">
+                            <h3 className="text-slate-300 font-bold text-sm">{label}</h3>
+                            <button onClick={openLiveLink} className="live-btn" title="실시간 정보 확인 페이지 열기">
+                                <i className="fas fa-external-link-alt"></i> 실시간 확인
+                            </button>
+                        </div>
+                        <span className={`text-xs px-2 py-1 rounded-full font-bold h-fit ${
+                            status === 'CRITICAL' ? 'bg-rose-900/50 text-rose-200 border border-rose-800' : 
+                            status === 'WARNING' ? 'bg-amber-900/50 text-amber-200 border border-amber-800' : 
+                            'bg-emerald-900/50 text-emerald-200 border border-emerald-800'
+                        }`}>
+                            {status === "CRITICAL" ? "위험" : status === "WARNING" ? "주의" : "안정"}
+                        </span>
+                    </div>
+
+                    {/* Gauge */}
+                    <div className="relative h-28 w-56 flex justify-center items-end mb-4">
+                        <div className="w-48 h-24 bg-slate-700 rounded-t-full relative overflow-hidden">
+                            <div className={`absolute bottom-0 left-0 w-full h-full opacity-40 ${
+                                dataKey === 'goldPrice' 
+                                ? 'bg-gradient-to-r from-emerald-500 via-amber-500 to-rose-500' 
+                                : inverse 
+                                    ? 'bg-gradient-to-r from-rose-500 via-amber-500 to-emerald-500' 
+                                    : 'bg-gradient-to-r from-emerald-500 via-amber-500 to-rose-500'
+                            }`}></div>
+                        </div>
+                        <div className="gauge-needle absolute bottom-0 w-1.5 h-24 bg-white origin-bottom z-10 rounded-t-full" 
+                             style={{ transform: `rotate(${rotation}deg)`, backgroundColor: needleColor, boxShadow: `0 0 12px ${needleColor}` }}></div>
+                        <div className="absolute bottom-0 w-4 h-4 bg-slate-900 rounded-full z-20 border-2 border-slate-500"></div>
+                    </div>
+
+                    {/* Value */}
+                    <div className={`text-3xl font-black tracking-tight ${color}`}>
+                        {value}<span className="text-base font-medium text-slate-500 ml-1">{unit}</span>
+                    </div>
+                </div>
+            );
+        };
+
+        const TrendChart = ({ history, dataKey, label, color, period }) => {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+
+            const filteredHistory = useMemo(() => {
+                const now = new Date();
+                let cutoffDate = new Date(now);
+
+                if (period === '1W') cutoffDate.setDate(now.getDate() - 7);
+                else if (period === '1M') cutoffDate.setMonth(now.getMonth() - 1);
+                else if (period === '1Y') cutoffDate.setFullYear(now.getFullYear() - 1);
+                else if (period === '3Y') cutoffDate.setFullYear(now.getFullYear() - 3);
+                else if (period === '10Y') cutoffDate.setFullYear(now.getFullYear() - 10);
+
+                const cutoffStr = `${cutoffDate.getFullYear()}-${String(cutoffDate.getMonth() + 1).padStart(2, '0')}-${String(cutoffDate.getDate()).padStart(2, '0')}`;
+                return history.filter(h => h.date >= cutoffStr);
+            }, [history, period]);
+
+            const chartData = useMemo(() => {
+                if (filteredHistory.length < 60) return filteredHistory;
+                const step = Math.ceil(filteredHistory.length / 60);
+                return filteredHistory.filter((_, index) => index % step === 0);
+            }, [filteredHistory]);
+
+            useEffect(() => {
+                if (canvasRef.current) {
+                    const ctx = canvasRef.current.getContext('2d');
+                    if (chartRef.current) chartRef.current.destroy();
+
+                    const labels = chartData.map(h => h.date);
+                    const data = chartData.map(h => h[dataKey]);
+
+                    chartRef.current = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: label,
+                                data: data,
+                                borderColor: color,
+                                backgroundColor: color + '10',
+                                borderWidth: 2,
+                                tension: 0.1,
+                                fill: true,
+                                pointRadius: period === '1W' || period === '1M' ? 3 : 0,
+                                pointHoverRadius: 5,
+                                pointBackgroundColor: color
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { 
+                                legend: { display: false },
+                                tooltip: { 
+                                    mode: 'index', 
+                                    intersect: false,
+                                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                                    titleColor: '#e2e8f0',
+                                    bodyColor: '#cbd5e1',
+                                    borderColor: 'rgba(148, 163, 184, 0.2)',
+                                    borderWidth: 1,
+                                    padding: 10
+                                }
+                            },
+                            scales: {
+                                x: { 
+                                    type: 'time',
+                                    time: { 
+                                        unit: period === '1W' ? 'day' : period === '1M' ? 'week' : period === '1Y' ? 'month' : 'year',
+                                        tooltipFormat: 'yyyy-MM-dd' 
+                                    },
+                                    grid: { color: '#334155' }, 
+                                    ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, maxTicksLimit: 6 } 
+                                },
+                                y: { 
+                                    grid: { color: '#334155' }, 
+                                    ticks: { color: '#94a3b8' } 
+                                }
+                            },
+                            interaction: {
+                                mode: 'nearest',
+                                axis: 'x',
+                                intersect: false
+                            }
+                        }
+                    });
+                }
+                return () => { if (chartRef.current) chartRef.current.destroy(); };
+            }, [chartData, dataKey, label, color, period]);
+
+            return <div className="h-72 w-full"><canvas ref={canvasRef}></canvas></div>;
+        };
+
+        // NEW COMPONENT: AI Economic Briefing
+        const AIBriefing = ({ data }) => {
+            const getStatus = () => {
+                let riskScore = 0;
+                let msgs = [];
+
+                if (data.exchangeRate >= 1470) { riskScore += 2; msgs.push("환율 위험 (1470원↑)"); }
+                else if (data.exchangeRate >= 1400) { riskScore += 1; msgs.push("환율 주의"); }
+
+                if (data.bondYield >= 4.0) { riskScore += 2; msgs.push("채권금리 급등"); }
+                else if (data.bondYield >= 3.5) { riskScore += 1; msgs.push("금리 상승세"); }
+
+                if (data.pfDelinquency >= 10.0) { riskScore += 2; msgs.push("PF 부실 심각"); }
+                else if (data.pfDelinquency >= 7.0) { riskScore += 1; msgs.push("PF 경고등"); }
+
+                if (data.goldPrice >= 2700) { riskScore += 2; msgs.push("금값 폭등(위험회피)"); }
+                else if (data.goldPrice >= 2500) { riskScore += 1; msgs.push("금값 강세"); }
+
+                if (riskScore >= 4) return { level: "CRITICAL", title: "비상 경계 (Critical)", color: "text-rose-500", border: "border-rose-500", bg: "bg-rose-950/40", icon: "fas fa-radiation", msg: "복합 위기 징후가 뚜렷합니다. 현금 비중을 최대로 늘리고 방어적인 태세를 취하십시오." };
+                if (riskScore >= 2) return { level: "WARNING", title: "관망 필요 (Warning)", color: "text-amber-400", border: "border-amber-500", bg: "bg-amber-950/40", icon: "fas fa-exclamation-triangle", msg: "일부 지표가 위험 수위입니다. 무리한 투자를 자제하고 시장 추이를 지켜보십시오." };
+                return { level: "SAFE", title: "안정적 흐름 (Stable)", color: "text-emerald-400", border: "border-emerald-500", bg: "bg-emerald-950/40", icon: "fas fa-check-circle", msg: "경제 지표가 비교적 안정적입니다. 우량 자산 위주로 포트폴리오를 점검하십시오." };
+            };
+
+            const status = getStatus();
+
+            return (
+                <div className={`p-6 rounded-2xl mb-8 border-2 ai-card ${status.border} ${status.bg} shadow-lg relative overflow-hidden`}>
+                    <div className="absolute top-0 right-0 p-4 opacity-10">
+                        <i className={`${status.icon} text-9xl`}></i>
+                    </div>
+                    <div className="relative z-10">
+                        <div className="flex items-center mb-3">
+                            <div className={`text-xs font-bold px-2 py-1 rounded bg-slate-900 border ${status.border} ${status.color} mr-2`}>
+                                AI ECONOMY BRIEFING
+                            </div>
+                            <span className="text-slate-400 text-xs">{new Date().toLocaleDateString()} 분석</span>
+                        </div>
+                        <h2 className={`text-3xl font-black mb-2 flex items-center ${status.color}`}>
+                            <i className={`${status.icon} mr-3`}></i>
+                            {status.title}
+                        </h2>
+                        <p className="text-lg text-slate-200 font-medium leading-relaxed">
+                            "{status.msg}"
+                        </p>
+                        <div className="mt-4 pt-4 border-t border-slate-700/50 flex flex-wrap gap-2">
+                            {data.exchangeRate >= 1470 && <span className="text-xs bg-rose-900/50 text-rose-200 px-2 py-1 rounded border border-rose-800">환율 1470원대</span>}
+                            {data.pfDelinquency >= 6.0 && <span className="text-xs bg-amber-900/50 text-amber-200 px-2 py-1 rounded border border-amber-800">PF 연체율 상승중</span>}
+                            {data.goldPrice >= 2700 && <span className="text-xs bg-yellow-900/50 text-yellow-200 px-2 py-1 rounded border border-yellow-800">금값 강세</span>}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [currentData, setCurrentData] = useState(DEFAULT_CURRENT);
+            const [history, setHistory] = useState([]);
+            const [activeTab, setActiveTab] = useState("dashboard");
+            const [today, setToday] = useState("");
+            const [chartPeriod, setChartPeriod] = useState("1Y");
+
+            useEffect(() => {
+                const now = new Date();
+                const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                setToday(dateStr);
+
+                const savedHistory = localStorage.getItem(STORAGE_KEY);
+                if (savedHistory) {
+                    const parsedHistory = JSON.parse(savedHistory);
+                    setHistory(parsedHistory);
+                    if (parsedHistory.length > 0) {
+                        const lastRecord = parsedHistory[parsedHistory.length - 1];
+                        if (lastRecord.date === dateStr) {
+                            setCurrentData(lastRecord);
+                        } else {
+                            const { date, ...values } = lastRecord;
+                            setCurrentData(values);
+                        }
+                    }
+                } else {
+                    const dummy = generateRealisticHistory();
+                    setHistory(dummy);
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(dummy));
+                }
+            }, []);
+
+            const saveData = () => {
+                const newHistory = [...history];
+                const existingIndex = newHistory.findIndex(h => h.date === today);
+                const newRecord = { date: today, ...currentData };
+
+                if (existingIndex >= 0) newHistory[existingIndex] = newRecord;
+                else newHistory.push(newRecord);
+
+                newHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
+                setHistory(newHistory);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(newHistory));
+                alert(`✅ ${today} 데이터가 안전하게 저장되었습니다.`);
+            };
+
+            const handleInputChange = (key, value) => {
+                setCurrentData(prev => ({ ...prev, [key]: parseFloat(value) }));
+            };
+
+            const getOverallStatus = () => {
+                let riskCount = 0;
+                if (currentData.bondYield >= 4.0) riskCount++;
+                if (currentData.exchangeRate >= 1470) riskCount++;
+                if (currentData.reserves <= 400) riskCount++;
+                if (currentData.pfDelinquency >= 10.0) riskCount++;
+                if (currentData.foreignerNet <= -2.0) riskCount++;
+                return riskCount >= 2 ? "위험" : riskCount >= 1 ? "주의" : "안정";
+            };
+
+            return (
+                <div className="min-h-screen pb-12 bg-slate-900 text-slate-100 font-sans selection:bg-blue-500 selection:text-white">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+                        
+                        {/* Header */}
+                        <div className="flex flex-col md:flex-row justify-between items-end mb-8 pb-6 border-b border-slate-800">
+                            <div>
+                                <h1 className="text-3xl font-extrabold mb-2 flex items-center text-white tracking-tight">
+                                    <span className="bg-gradient-to-r from-blue-500 to-cyan-400 bg-clip-text text-transparent">
+                                        <i className="fas fa-chart-line mr-3 text-blue-400"></i>
+                                        나만의 경제 위기 6대 계기판
+                                    </span>
+                                </h1>
+                                <p className="text-slate-400 text-sm">
+                                    오늘 날짜: <span className="text-blue-400 font-mono font-bold text-base">{today}</span> (매일 아침 업데이트)
+                                </p>
+                            </div>
+                            <div className="mt-6 md:mt-0 flex gap-2">
+                                <button onClick={() => setActiveTab('dashboard')} className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}>
+                                    <i className="fas fa-tachometer-alt mr-2"></i>상황판
+                                </button>
+                                <button onClick={() => setActiveTab('trends')} className={`tab-btn ${activeTab === 'trends' ? 'active' : ''}`}>
+                                    <i className="fas fa-history mr-2"></i>장기 추세 분석
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* DASHBOARD TAB */}
+                        {activeTab === 'dashboard' && (
+                            <div className="animate-fade-in">
+                                <AIBriefing data={currentData} />
+
+                                <div className="flex justify-end mb-6">
+                                    <button onClick={saveData} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-xl shadow-lg font-bold transition transform active:scale-95 flex items-center justify-center">
+                                        <i className="fas fa-save mr-2"></i>오늘 데이터 저장하기
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {[
+                                        { key: 'bondYield', label: '① 국고채 10년물', unit: '%', min: 2.0, max: 5.0, warn: 3.5, danger: 4.0 },
+                                        { key: 'exchangeRate', label: '② 원/달러 환율', unit: '원', min: 1200, max: 1600, warn: 1400, danger: 1470 },
+                                        { key: 'reserves', label: '③ 외환보유고', unit: '억$', min: 350, max: 450, warn: 415, danger: 400, inverse: true },
+                                        { key: 'pfDelinquency', label: '④ PF 연체율(취약)', unit: '%', min: 0, max: 15, warn: 7.0, danger: 10.0 },
+                                        { key: 'foreignerNet', label: '⑤ 외국인 순매수', unit: '조원', min: -5, max: 5, warn: 0, danger: -2.0, inverse: true },
+                                        { key: 'goldPrice', label: '⑥ 금 시세 (국제)', unit: '$/oz', min: 1800, max: 2800, warn: 2600, danger: 2700 }
+                                    ].map((item) => (
+                                        <div key={item.key} className="flex flex-col gap-3">
+                                            <Gauge 
+                                                dataKey={item.key} label={item.label} value={currentData[item.key]} unit={item.unit}
+                                                min={item.min} max={item.max} thresholds={{ warning: item.warn, danger: item.danger }} inverse={item.inverse}
+                                            />
+                                            <div className="flex items-center justify-between bg-slate-800 p-3 rounded-xl border border-slate-700">
+                                                <div className="flex items-center text-sm text-slate-400 font-medium">
+                                                    <i className="fas fa-pen mr-2 text-slate-500"></i>입력
+                                                </div>
+                                                <input 
+                                                    type="number" 
+                                                    step={item.key === 'exchangeRate' ? 0.01 : 0.1} 
+                                                    className="input-dark" 
+                                                    value={currentData[item.key]} 
+                                                    onChange={(e) => handleInputChange(item.key, e.target.value)} 
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border border-slate-700 flex flex-col justify-center shadow-lg">
+                                        <h4 className="text-blue-400 font-bold mb-4 text-lg border-b border-slate-700 pb-3 flex items-center">
+                                            <i className="fas fa-robot mr-2"></i>사용 가이드
+                                        </h4>
+                                        <ul className="space-y-4 text-sm text-slate-300">
+                                            <li className="flex items-start">
+                                                <span className="bg-slate-700 p-1.5 rounded text-xs mr-3"><i className="fas fa-external-link-alt text-blue-400"></i></span>
+                                                <span>각 항목의 <strong>[실시간 확인]</strong> 버튼을 누르면 즉시 최신 정보를 볼 수 있습니다.</span>
+                                            </li>
+                                            <li className="flex items-start">
+                                                <span className="bg-slate-700 p-1.5 rounded text-xs mr-3"><i className="fas fa-brain text-purple-400"></i></span>
+                                                <span>상단 <strong>AI 브리핑 카드</strong>를 통해 오늘의 경제 기상도를 한 문장으로 파악하세요.</span>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TRENDS TAB (LONG TERM - FIXED: 6 Charts) */}
+                        {activeTab === 'trends' && (
+                            <div className="space-y-8 animate-fade-in">
+                                <div className="flex justify-end mb-6 gap-2 bg-slate-800 p-2 rounded-xl inline-flex ml-auto border border-slate-700">
+                                    <button onClick={() => setChartPeriod('1W')} className={`period-btn ${chartPeriod === '1W' ? 'active' : ''}`}>1주</button>
+                                    <button onClick={() => setChartPeriod('1M')} className={`period-btn ${chartPeriod === '1M' ? 'active' : ''}`}>1개월</button>
+                                    <button onClick={() => setChartPeriod('1Y')} className={`period-btn ${chartPeriod === '1Y' ? 'active' : ''}`}>1년</button>
+                                    <button onClick={() => setChartPeriod('3Y')} className={`period-btn ${chartPeriod === '3Y' ? 'active' : ''}`}>3년</button>
+                                    <button onClick={() => setChartPeriod('10Y')} className={`period-btn ${chartPeriod === '10Y' ? 'active' : ''}`}>10년(장기)</button>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                    {[
+                                        { key: 'bondYield', label: '① 국고채 10년물 금리 (%)', color: '#34d399' },
+                                        { key: 'exchangeRate', label: '② 원/달러 환율 (원)', color: '#60a5fa' },
+                                        { key: 'reserves', label: '③ 외환보유고 (억$)', color: '#a78bfa' }, // Added Missing Chart
+                                        { key: 'pfDelinquency', label: '④ PF 연체율 (%)', color: '#f87171' },
+                                        { key: 'foreignerNet', label: '⑤ 외국인 순매수 (조원)', color: '#c084fc' },
+                                        { key: 'goldPrice', label: '⑥ 국제 금 시세 ($/oz)', color: '#fbbf24' }
+                                    ].map((chart) => (
+                                        <div key={chart.key} className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-lg">
+                                            <h3 className="text-lg font-bold mb-6 flex items-center" style={{color: chart.color}}>
+                                                <span className="w-2 h-6 rounded-full mr-3" style={{backgroundColor: chart.color}}></span>
+                                                {chart.label}
+                                            </h3>
+                                            <TrendChart history={history} dataKey={chart.key} label={chart.label} color={chart.color} period={chartPeriod} />
+                                        </div>
+                                    ))}
+                                </div>
+                                
+                                <div className="text-center text-sm text-slate-500 mt-12 py-6 border-t border-slate-800">
+                                    * 브라우저에 저장된 데이터를 기반으로 합니다. 초기 데이터는 시뮬레이션을 위한 가상 데이터(약 3년치)가 포함되어 있습니다.
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
